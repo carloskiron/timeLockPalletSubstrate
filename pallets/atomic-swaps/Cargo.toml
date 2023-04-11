@@ -1,0 +1,38 @@
+[package]
+description = "A dummy pallet for performing atomic swaps."
+edition = "2021"
+license = "Unlicense"
+name = "pallet-atomic-swaps"
+publish = false
+version = "4.0.0-dev"
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+codec = {package = "parity-scale-codec", version = "3.0.0", default-features = false, features = [
+  "derive",
+]}
+frame-benchmarking = {version = "4.0.0-dev", default-features = false, optional = true, git = "https://github.com/paritytech/substrate.git", "branch" = "polkadot-v0.9.35"}
+frame-support = {version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", "branch" = "polkadot-v0.9.35"}
+frame-system = {version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", "branch" = "polkadot-v0.9.35"}
+pallet-assets = {version = "4.0.0-dev", default-features = false, git = "https://github.com/paritytech/substrate.git", "branch" = "polkadot-v0.9.35"}
+scale-info = {version = "2.1.1", default-features = false, features = ["derive"]}
+
+[dev-dependencies]
+sp-core = {version = "7.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", "branch" = "polkadot-v0.9.35"}
+sp-io = {version = "7.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", "branch" = "polkadot-v0.9.35"}
+sp-runtime = {version = "7.0.0", default-features = false, git = "https://github.com/paritytech/substrate.git", "branch" = "polkadot-v0.9.35"}
+
+[features]
+default = ["std"]
+runtime-benchmarks = ["frame-benchmarking/runtime-benchmarks"]
+std = [
+  "codec/std",
+  "pallet-assets/std",
+  "frame-benchmarking?/std",
+  "frame-support/std",
+  "frame-system/std",
+  "scale-info/std",
+]
+try-runtime = ["frame-support/try-runtime"]
