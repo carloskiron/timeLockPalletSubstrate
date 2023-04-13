@@ -1,0 +1,14 @@
+pub(crate) const ACCOUNT_A: u64 = 0;
+pub(crate) const ACCOUNT_B: u64 = 1;
+pub(crate) const ACCOUNT_C: u64 = 2;
+pub(crate) const ACCOUNT_D_LOW_BALANCES: u64 = 3;
+pub(crate) const ACCOUNTS_START_BALANCE: u128 = 1_000_000_000;
+pub(crate) const ACCOUNTS_START_LOW_BALANCE: u128 = 2;
+pub(crate) const ASSET_A: u32 = 100;
+pub(crate) const ASSET_B: u32 = 101;
+pub(crate) const ASSET_C: u32 = 102;
+pub(crate) const ASSET_D: u32 = 103;
+pub(crate) const ASSET_NOT_EXIST: u32 = 108;
+pub(crate) const LIQ_TOKEN_AB: u32 = 200;
+pub(crate) const LIQ_TOKEN_AC: u32 = 201;
+pub(crate) const LIQ_TOKEN_BC: u32 = 203;

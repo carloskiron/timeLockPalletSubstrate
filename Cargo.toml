@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "node",
-    "pallets/amm",
+    "pallets/aswap",
     "runtime",
 ]
 [profile.release]

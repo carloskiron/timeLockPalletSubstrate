@@ -6,6 +6,7 @@
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
+use codec::{Decode, Encode};
 use pallet_grandpa::{
 	fg_primitives, AuthorityId as GrandpaId, AuthorityList as GrandpaAuthorityList,
 };
@@ -15,7 +16,8 @@ use sp_core::{crypto::KeyTypeId, OpaqueMetadata};
 use sp_runtime::{
 	create_runtime_str, generic, impl_opaque_keys,
 	traits::{
-		AccountIdLookup, BlakeTwo256, Block as BlockT, IdentifyAccount, NumberFor, One, Verify,
+		AccountIdLookup, BlakeTwo256, Block as BlockT, Convert, IdentifyAccount, NumberFor, One,
+		Verify,
 	},
 	transaction_validity::{TransactionSource, TransactionValidity},
 	ApplyExtrinsicResult, MultiSignature,
@@ -24,6 +26,8 @@ use sp_std::prelude::*;
 #[cfg(feature = "std")]
 use sp_version::NativeVersion;
 use sp_version::RuntimeVersion;
+
+use frame_system::{EnsureRoot, EnsureSigned};
 
 // A few exports that help ease life for downstream crates.
 pub use frame_support::{
@@ -40,16 +44,13 @@ pub use frame_support::{
 	},
 	PalletId, StorageValue,
 };
-pub use frame_system::{Call as SystemCall, EnsureRoot, EnsureSigned};
+pub use frame_system::Call as SystemCall;
 pub use pallet_balances::Call as BalancesCall;
 pub use pallet_timestamp::Call as TimestampCall;
 use pallet_transaction_payment::{ConstFeeMultiplier, CurrencyAdapter, Multiplier};
 #[cfg(any(feature = "std", test))]
 pub use sp_runtime::BuildStorage;
 pub use sp_runtime::{Perbill, Permill};
-
-pub use pallet_amm;
-pub use pallet_atomic_swaps;
 
 /// An index to a block.
 pub type BlockNumber = u32;
@@ -276,18 +277,12 @@ impl pallet_sudo::Config for Runtime {
 	type RuntimeCall = RuntimeCall;
 }
 
-pub const UNIT: Balance = 1_000_000_000_000;
-pub const EUR: u32 = 0;
-pub const USD: u32 = 1;
-pub const ETH: u32 = 2;
-pub const DOT: u32 = 3;
-
 parameter_types! {
-	pub const AssetDeposit: Balance = 100 * UNIT;
-	pub const ApprovalDeposit: Balance = 1 * UNIT;
+	pub const AssetDeposit: Balance = 100;
+	pub const ApprovalDeposit: Balance = 1;
 	pub const StringLimit: u32 = 50;
-	pub const MetadataDepositBase: Balance = 10 * UNIT;
-	pub const MetadataDepositPerByte: Balance = 1 * UNIT;
+	pub const MetadataDepositBase: Balance = 10;
+	pub const MetadataDepositPerByte: Balance = 1;
 }
 
 impl pallet_assets::Config for Runtime {
@@ -299,7 +294,7 @@ impl pallet_assets::Config for Runtime {
 	type CreateOrigin = AsEnsureOriginWithArg<EnsureSigned<AccountId>>;
 	type ForceOrigin = EnsureRoot<AccountId>;
 	type AssetDeposit = AssetDeposit;
-	type AssetAccountDeposit = ConstU128<UNIT>;
+	type AssetAccountDeposit = ConstU128<1>;
 	type MetadataDepositBase = MetadataDepositBase;
 	type MetadataDepositPerByte = MetadataDepositPerByte;
 	type ApprovalDeposit = ApprovalDeposit;
@@ -312,32 +307,28 @@ impl pallet_assets::Config for Runtime {
 	type BenchmarkHelper = ();
 }
 
-parameter_types! {
-	pub const Eur: u32 = EUR;
-	pub const Usd: u32 = USD;
-	pub const AmmPalletId: PalletId = PalletId(*b"autom_mm");
-}
+pub struct AuthorityToAccount;
 
-impl pallet_amm::Config for Runtime {
-	type RuntimeEvent = RuntimeEvent;
-	type Assets = Assets;
-	type Eur = Eur;
-	type Usd = Usd;
-	type PalletId = AmmPalletId;
+impl Convert<AuraId, AccountId> for AuthorityToAccount {
+	fn convert(authority: AuraId) -> AccountId {
+		// The proper way to handle this is with Session + Aura + Authorship pallets.
+		// But this is good enough.
+		Decode::decode(&mut &authority.encode()[..])
+			.expect("We expect every authority id from aura to be the same an an account id.")
+	}
 }
 
 parameter_types! {
-	pub const Eth: u32 = ETH;
-	pub const Dot: u32 = DOT;
-	pub const ASPalletId: PalletId = PalletId(*b"atom_swp");
+	pub const AswapPalletId: PalletId = PalletId(*b"ato_swap");
 }
 
-impl pallet_atomic_swaps::Config for Runtime {
+/// Configure the pallet-aswap in pallets/aswap.
+impl pallet_aswap::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
-	type Assets = Assets;
-	type Eth = Eth;
-	type Dot = Dot;
-	type PalletId = ASPalletId;
+	type Currency = Balances;
+	type Fungibles = Assets;
+	type PalletId = AswapPalletId;
+	type MinLiquidity = ConstU128<0>;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
@@ -349,7 +340,6 @@ construct_runtime!(
 		UncheckedExtrinsic = UncheckedExtrinsic,
 	{
 		System: frame_system,
-		Assets: pallet_assets,
 		RandomnessCollectiveFlip: pallet_randomness_collective_flip,
 		Timestamp: pallet_timestamp,
 		Aura: pallet_aura,
@@ -357,8 +347,8 @@ construct_runtime!(
 		Balances: pallet_balances,
 		TransactionPayment: pallet_transaction_payment,
 		Sudo: pallet_sudo,
-		Amm: pallet_amm,
-		AtomicSwaps: pallet_atomic_swaps,
+		Assets: pallet_assets,
+		Aswap: pallet_aswap,
 	}
 );
 
@@ -405,7 +395,10 @@ mod benches {
 		[frame_system, SystemBench::<Runtime>]
 		[pallet_balances, Balances]
 		[pallet_timestamp, Timestamp]
-		[pallet_template, TemplateModule]
+		[pallet_aswap, Aswap]
+		[pallet_dpos, Dpos]
+		[pallet_voting, Voting]
+
 	);
 }
 
