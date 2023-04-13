@@ -20,7 +20,7 @@ pub mod pallet {
 		pallet_prelude::{DispatchResult, *},
 		sp_io::hashing,
 		sp_runtime::traits::{
-			AccountIdConversion, CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, IntegerSquareRoot,
+			AccountIdConversion, CheckedAdd, CheckedDiv, CheckedMul,
 			One, Zero,
 		},
 		traits::{
