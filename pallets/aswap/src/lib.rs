@@ -366,6 +366,10 @@ pub mod pallet {
 			let mut lockDetails = LockTransactions::<T>::get(tx_id).ok_or(Error::<T>::TransactionNotExists)?;
 			lockDetails.is_refunded = true;
 			T::Fungibles::transfer(lockDetails.asset_id, &Self::account_id(), &lockDetails.sender, lockDetails.amount, true)?;
+			<LockTransactions<T>>::insert(
+				tx_id,
+				lockDetails.clone()
+			);
 			Self::deposit_event(Event::Canceled {
 				tx_id
 			});
