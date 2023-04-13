@@ -87,7 +87,7 @@ pub mod pallet {
 		pub expiration_block: BlockNumber,
 		pub is_withdraw: bool,
 		pub is_refunded: bool,
-		pub preimage: [u8; 32],
+		pub preimage: Option<[u8; 32]>,
 	}
 
 	/// type for modeling LockDetails
@@ -107,9 +107,10 @@ pub mod pallet {
 	pub enum Event<T: Config> {
 		/// Notify about new lock transaction
 		Locked {
+			tx_id: [u8; 32],
 			recipient: AccountIdOf<T>,
 			hashlock: [u8; 32],
-			timelock: BlockNumberOf<T>,
+			expiration_block: BlockNumberOf<T>,
 			asset_id: AssetIdOf<T>,
 			asset_amount: AssetBalanceOf<T>,
 		},
@@ -140,6 +141,8 @@ pub mod pallet {
 		InvalidPreimage,
 		/// transaction doesn't exists
 		TransactionNotExists,
+		/// lock with transaction id already exists
+		TransactionIdExists,
 		/// already withdrawn
 		AlreadyWithdrawn,
 		/// already refunded
@@ -163,7 +166,7 @@ pub mod pallet {
 		fn lockDetailsExists(tx_id: [u8; 32]) -> bool;
 		///	ensure that tx_id exists in the storage and who equals to recipient or throws error
 		fn ensureLockDetailsValidToUnlock(
-			who: AccountIdOf<Self>,
+			who: &AccountIdOf<Self>,
 			tx_id: [u8; 32],
 		) -> Result<(), Error<Self>>;
 		///	ensure that tx_id's hash and preimage's hash matches or throws error
@@ -184,32 +187,51 @@ pub mod pallet {
 		fn ensure_asset_exists(asset_id: AssetIdOf<Self>) -> Result<(), Error<Self>>;
 		/// checks current block number with the deadline provided. Error if current block number is above
 		fn ensure_deadline(expiration_block: &Self::BlockNumber) -> Result<(), Error<Self>>;
+		/// checks current block number with the deadline provided. Error if block number has not expired
+		fn ensure_expired(expiration_block: &Self::BlockNumber) -> Result<(), Error<Self>>;
 	}
 
 	/// Helpers implementation
 	impl<T: Config> PalletHelpers for T {
+		
 		fn lockDetailsExists(tx_id: [u8; 32]) -> bool {
 			LockTransactions::<T>::contains_key(tx_id)
 		}
+		
 		fn ensureLockDetailsValidToUnlock(
-			who: AccountIdOf<Self>,
+			who: &AccountIdOf<Self>,
 			tx_id: [u8; 32],
 		) -> Result<(), Error<Self>> {
 			let lockDetails =
 				LockTransactions::<T>::get(tx_id).ok_or(Error::TransactionNotExists)?;
-			ensure!(lockDetails.recipient == who, Error::<T>::InvalidReceiver);
+			ensure!(lockDetails.recipient == who.clone(), Error::<T>::InvalidReceiver);
 			Ok(())
 		}
+
 		fn ensureHashlockMatches(tx_id: [u8; 32], preimage: [u8; 32]) -> Result<(), Error<Self>> {
-			//let lockDetails = LockDetails::<T>::get(tx_id);
+			let lockDetails =
+				LockTransactions::<T>::get(tx_id).ok_or(Error::TransactionNotExists)?;
 			let secretHash: [u8; 32] = hashing::sha2_256(&preimage.clone());
-			//ensure!(lockDetails.hashlock == secretHash, Error::<T>::InvalidPreimage);
+			ensure!(lockDetails.hashlock == secretHash, Error::<T>::InvalidPreimage);
 			Ok(())
 		}
 		fn ensureRefundable(tx_id: [u8; 32]) -> Result<(), Error<Self>> {
+			let lockDetails =
+				LockTransactions::<T>::get(tx_id).ok_or(Error::TransactionNotExists)?;
+			
+			ensure!(lockDetails.is_refunded == false, Error::<T>::AlreadyRefunded);
+			ensure!(lockDetails.is_withdraw == false, Error::<T>::AlreadyWithdrawn);
+			Self::ensure_expired(&lockDetails.expiration_block);
 			Ok(())
 		}
 		fn ensureWithdrawable(tx_id: [u8; 32]) -> Result<(), Error<Self>> {
+			let lockDetails =
+				LockTransactions::<T>::get(tx_id).ok_or(Error::TransactionNotExists)?;
+			
+			ensure!(lockDetails.is_withdraw == false, Error::<T>::AlreadyWithdrawn);
+			ensure!(lockDetails.is_refunded == false, Error::<T>::AlreadyRefunded);
+			// if we want to disallow claim to be made after the timeout, uncomment the following line
+			// Self::ensure_deadline(&lockDetails.expiration_block);
 			Ok(())
 		}
 
@@ -238,10 +260,19 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// checks current block number with the deadline provided. Error if block numer is above
+		/// checks current block number with the deadline provided. Error if block number is above
 		fn ensure_deadline(expiration_block: &Self::BlockNumber) -> Result<(), Error<Self>> {
 			ensure!(
-				expiration_block >= &<frame_system::Pallet<Self>>::block_number(),
+				expiration_block > &<frame_system::Pallet<Self>>::block_number(),
+				Error::Expired
+			);
+			Ok(())
+		}
+
+		/// checks current block number with the deadline provided. Error if block number has not expired
+		fn ensure_expired(expiration_block: &Self::BlockNumber) -> Result<(), Error<Self>> {
+			ensure!(
+				expiration_block <= &<frame_system::Pallet<Self>>::block_number(),
 				Error::Expired
 			);
 			Ok(())
@@ -252,185 +283,13 @@ pub mod pallet {
 	// These functions materialize as "extrinsics", which are often compared to transactions.
 	// Dispatchable functions must be annotated with a weight and must return a DispatchResult.
 	#[pallet::call]
-	impl<T: Config> Pallet<T> {
-		/// Calls to handle pairs defitnions
-
-		/// Create a new exchange pair with given tokens and tager lp asset id.
-		/// lp_asset_id is used to create a new asset to represent senders' positions in the
-		/// pool as they add liquidity.
-		#[pallet::call_index(0)]
-		#[pallet::weight(0)]
-		pub fn new_exchange(
-			origin: OriginFor<T>,
-			asset_a_id: AssetIdOf<T>,
-			asset_b_id: AssetIdOf<T>,
-			asset_lp_id: AssetIdOf<T>,
-		) -> DispatchResult {
-			/* // check valid origin
-			ensure_signed(origin)?;
-			// check if asset exists before creating a exchange
-			T::ensure_asset_exists(asset_a_id)?;
-			T::ensure_asset_exists(asset_b_id)?;
-			T::ensure_liquidity_pool_and_token_not_exists(asset_a_id, asset_b_id, asset_lp_id)?;
-			//lp token creation
-			T::Fungibles::create(
-				asset_lp_id,
-				Self::account_id(),
-				false,
-				<AssetBalanceOf<T>>::one(),
-			)?;
-			//lp created in storage
-			T::setup_exchange(asset_a_id, asset_b_id, asset_lp_id);
-			// Notify exchange/pair creation.
-			Self::deposit_event(Event::ExchangeCreated { asset_a_id, asset_b_id, asset_lp_id }); */
-			Ok(())
-			//TODO should we include some sort of fees customtization to define insentives during
-			// exchange creation?
-		}
-
-		/// Provides liquidity to existent pool and generates LP tokens to user
-		#[pallet::call_index(1)]
-		#[pallet::weight(0)]
-		pub fn add_liquidity(
-			origin: OriginFor<T>,
-			asset_a_id: AssetIdOf<T>,
-			asset_a_amount: AssetBalanceOf<T>,
-			asset_b_id: AssetIdOf<T>,
-			asset_b_amount: AssetBalanceOf<T>,
-		) -> DispatchResult {
-			/* let who = ensure_signed(origin)?;
-			// check if assets exists
-			T::ensure_asset_exists(asset_a_id)?;
-			T::ensure_asset_exists(asset_b_id)?;
-			// check if not zero
-			T::ensure_is_not_zero(asset_a_amount)?;
-			T::ensure_is_not_zero(asset_b_amount)?;
-			// check who has balance
-			T::ensure_has_balance(&who, asset_a_id, asset_a_amount)?;
-			T::ensure_has_balance(&who, asset_b_id, asset_b_amount)?;
-			// check that pool exists in storaged reserves
-			T::ensure_liquidity_pool_exists(asset_a_id, asset_b_id)?;
-			// token a moved to pallet account.
-			T::Fungibles::transfer(asset_a_id, &who, &Self::account_id(), asset_a_amount, true)?;
-			// token b moved to pallet account.
-			T::Fungibles::transfer(asset_b_id, &who, &Self::account_id(), asset_b_amount, true)?;
-			// update tokens reserves.
-			let lp_asset_amount =
-				T::add_exchange_liquidity(asset_a_id, asset_a_amount, asset_b_id, asset_b_amount)?;
-			// provided and current pool size
-			T::Fungibles::mint_into(
-				T::get_liquidity_pool_asset_id(asset_a_id, asset_b_id)?,
-				&who,
-				lp_asset_amount,
-			)?;
-			// emit liquidity added
-			Self::deposit_event(Event::LiquidityAdded {
-				asset_a_id,
-				asset_a_amount,
-				asset_b_id,
-				asset_b_amount,
-			}); */
-
-			Ok(())
-		}
-
-		/// Removes position from pool, returns funds + fees to user
-		#[pallet::call_index(2)]
-		#[pallet::weight(0)]
-		pub fn remove_liquidity(
-			origin: OriginFor<T>,
-			lp_asset_id: AssetIdOf<T>,
-			lp_asset_amount: AssetBalanceOf<T>,
-		) -> DispatchResult {
-			/* let who = ensure_signed(origin)?;
-			// ensure that everything-inputs exists / are valid
-			T::ensure_asset_exists(lp_asset_id)?;
-			// Check if not zero
-			T::ensure_is_not_zero(lp_asset_amount)?;
-			// check if has this lp token and the amount >= in balance
-			T::ensure_has_balance(&who, lp_asset_id, lp_asset_amount)?;
-			// calculate the amount of token a and token b that must be transfered to origin from
-			let (asset_a_id, asset_a_amount, asset_b_id, asset_b_amount) =
-				T::calculate_amounts_to_return(lp_asset_id, lp_asset_amount)?;
-			// burn lp tokens from origin
-			T::Fungibles::burn_from(lp_asset_id, &who, lp_asset_amount)?;
-			// transfer tokens A and B to origin
-			T::Fungibles::transfer(asset_a_id, &Self::account_id(), &who, asset_a_amount, true)?;
-			T::Fungibles::transfer(asset_b_id, &Self::account_id(), &who, asset_b_amount, true)?;
-			// update reserves in storage. Do they need to be rebalance?
-			T::remove_exchange_liquidity(
-				asset_a_id,
-				asset_a_amount,
-				asset_b_id,
-				asset_b_amount,
-				lp_asset_amount,
-				true,
-			)?;
-			// emit liquidity removed
-			Self::deposit_event(Event::LiquidityRemoved {
-				asset_a_id,
-				asset_a_amount,
-				asset_b_id,
-				asset_b_amount,
-				lp_asset_amount_burned: lp_asset_amount,
-			}); */
-			Ok(())
-		}
-
-		/// Swaps from token A to token B
-		/// As part of the process fees are taken and distributed based on actual positions in pool
-		#[pallet::call_index(3)]
-		#[pallet::weight(0)]
-		pub fn swap(
-			origin: OriginFor<T>,
-			asset_a_id: AssetIdOf<T>,
-			asset_a_amount: AssetBalanceOf<T>,
-			asset_b_id: AssetIdOf<T>,
-			min_asset_b_amount: AssetBalanceOf<T>,
-			execution_deadline: Option<T::BlockNumber>,
-			to_account: Option<AccountIdOf<T>>,
-		) -> DispatchResult {
-			/* let who = ensure_signed(origin)?;
-			// deadline validation
-			if execution_deadline.is_some() {
-				T::ensure_deadline(&execution_deadline.unwrap())?;
-			}
-			// ensure that everything-inputs exists / are valid
-			T::ensure_asset_exists(asset_a_id)?;
-			T::ensure_asset_exists(asset_b_id)?;
-			T::ensure_has_balance(&who, asset_a_id, asset_a_amount)?;
-			// check that pool exists in storaged reserves
-			T::ensure_liquidity_pool_exists(asset_a_id, asset_b_id)?;
-			// calculates amount of token b to get based on current pool and fees.
-			let amount_out = T::get_amount_out(asset_a_id, asset_a_amount, asset_b_id)?;
-			ensure!(amount_out >= min_asset_b_amount, Error::<T>::SwapOutBelowMin);
-			// Transfer a from origin to pallet account
-			T::Fungibles::transfer(asset_a_id, &who, &Self::account_id(), asset_a_amount, true)?;
-			// Transfer b from pallet account to origin or to_account if provided
-			T::Fungibles::transfer(
-				asset_b_id,
-				&Self::account_id(),
-				&to_account.unwrap_or(who),
-				amount_out,
-				true,
-			)?;
-			// update reserves in storage
-			T::take_amount_out_from_reserves(asset_a_id, asset_a_amount, asset_b_id, amount_out)?;
-			// emit new swap
-			Self::deposit_event(Event::SwapeExecuted {
-				asset_a_id,
-				asset_a_amount,
-				asset_b_id,
-				asset_b_amount: amount_out,
-			}); */
-			Ok(())
-		}
-
+	impl<T: Config> Pallet<T> {	
 		/// Locks funds for a given time ( current block + timelock )
-		#[pallet::call_index(4)]
+		#[pallet::call_index(1)]
 		#[pallet::weight(0)]
 		pub fn lock(
 			origin: OriginFor<T>,
+			tx_id: [u8; 32],
 			recipient: AccountIdOf<T>,
 			hashlock: [u8; 32],
 			timelock: BlockNumberOf<T>,
@@ -438,23 +297,78 @@ pub mod pallet {
 			asset_amount: AssetBalanceOf<T>,
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
+			ensure!(T::lockDetailsExists(tx_id) == false, Error::<T>::TransactionIdExists);
+			let now = <frame_system::Pallet<T>>::block_number();
+			let expiration_block = now + timelock;
+			T::ensure_deadline(&expiration_block)?;
+			T::ensure_asset_exists(asset_id)?;
+			T::ensure_has_balance(&who, asset_id, asset_amount)?;
+			// tokens transfered to pallet account.
+			T::Fungibles::transfer(asset_id, &who, &Self::account_id(), asset_amount, true)?;
+			<LockTransactions<T>>::insert(
+				tx_id,
+				LockDetails { 
+					tx_id,
+					sender: who,
+					recipient: recipient.clone(),
+					asset_id,
+					amount: asset_amount,
+					hashlock,
+					expiration_block,
+					is_withdraw: false,
+					is_refunded: false,
+					preimage: None
+			    }
+			);
+
+			Self::deposit_event(Event::Locked {
+				tx_id,
+				recipient,
+				hashlock,
+				expiration_block,
+				asset_id,
+				asset_amount 
+			});
+
 			Ok(())
 		}
 
 		/// Unlocks funds if preimage is correct and timelock  has not expired
-		#[pallet::call_index(5)]
+		#[pallet::call_index(2)]
 		#[pallet::weight(0)]
 		pub fn unlock(origin: OriginFor<T>, tx_id: [u8; 32], preimage: [u8; 32]) -> DispatchResult {
 			let who = ensure_signed(origin)?;
+			T::ensureLockDetailsValidToUnlock(&who, tx_id);
+			T::ensureHashlockMatches(tx_id, preimage);
+			T::ensureWithdrawable(tx_id);
+			let mut lockDetails = LockTransactions::<T>::get(tx_id).ok_or(Error::<T>::TransactionNotExists)?;
+			lockDetails.preimage = Some(preimage);
+			lockDetails.is_withdraw = true;
+			T::Fungibles::transfer(lockDetails.asset_id, &Self::account_id(), &lockDetails.recipient, lockDetails.amount, true)?;
+			<LockTransactions<T>>::insert(
+				tx_id,
+				lockDetails.clone()
+			);
+			Self::deposit_event(Event::Unlocked {
+				tx_id
+			});
 			Ok(())
 		}
 
-		/// Called by the sender if there was no withdraw AND the time lock has expired.
+		/// Called by the sender if there was no withdraw and the time lock has expired.
 		/// This will restore ownership of the tokens to the sender.
-		#[pallet::call_index(6)]
+		#[pallet::call_index(3)]
 		#[pallet::weight(0)]
 		pub fn cancel(origin: OriginFor<T>, tx_id: [u8; 32]) -> DispatchResult {
 			let who = ensure_signed(origin)?;
+			ensure!(T::lockDetailsExists(tx_id) == true, Error::<T>::TransactionIdExists);
+			T::ensureRefundable(tx_id);
+			let mut lockDetails = LockTransactions::<T>::get(tx_id).ok_or(Error::<T>::TransactionNotExists)?;
+			lockDetails.is_refunded = true;
+			T::Fungibles::transfer(lockDetails.asset_id, &Self::account_id(), &lockDetails.sender, lockDetails.amount, true)?;
+			Self::deposit_event(Event::Canceled {
+				tx_id
+			});
 			Ok(())
 		}
 	}
