@@ -328,7 +328,6 @@ impl pallet_aswap::Config for Runtime {
 	type Currency = Balances;
 	type Fungibles = Assets;
 	type PalletId = AswapPalletId;
-	type MinLiquidity = ConstU128<0>;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.

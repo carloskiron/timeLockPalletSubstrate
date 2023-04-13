@@ -114,7 +114,6 @@ impl pallet_aswap::Config for Test {
 	type Currency = Balances;
 	type Fungibles = Assets;
 	type PalletId = AswapPalletId;
-	type MinLiquidity = ConstU128<0>;
 }
 
 pub fn get_pallet_balance(asset_id: u32) -> Balance {

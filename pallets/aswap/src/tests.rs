@@ -3,7 +3,7 @@ use core::ops::Add;
 use crate::{mock::*, mock_data::*, Error, Event};
 use frame_support::{assert_noop, assert_ok};
 use sp_runtime::traits::IntegerSquareRoot;
-
+/*
 #[test]
 fn create_new_exchange_ok() {
 	new_test_ext().execute_with(|| {
@@ -699,3 +699,4 @@ fn unsigned_cannot_execute_actions() {
 		);
 	});
 }
+ */
