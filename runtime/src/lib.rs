@@ -319,7 +319,7 @@ impl Convert<AuraId, AccountId> for AuthorityToAccount {
 }
 
 parameter_types! {
-	pub const AswapPalletId: PalletId = PalletId(*b"ato_swap");
+	pub const AswapPalletId: PalletId = PalletId(*b"aswapjur");
 }
 
 /// Configure the pallet-aswap in pallets/aswap.

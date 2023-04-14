@@ -105,7 +105,7 @@ impl pallet_assets::Config for Test {
 }
 
 parameter_types! {
-	pub const AswapPalletId: PalletId = PalletId(*b"ato_swap");
+	pub const AswapPalletId: PalletId = PalletId(*b"aswapjur");
 }
 
 impl pallet_aswap::Config for Test {

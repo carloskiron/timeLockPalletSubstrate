@@ -205,7 +205,6 @@ pub mod pallet {
 		fn lock_details_exists(tx_id: [u8; 32]) -> bool {
 			LockTransactions::<T>::contains_key(tx_id)
 		}
-
 		fn ensure_lock_details_valid_to_unlock(
 			who: &AccountIdOf<Self>,
 			tx_id: [u8; 32],
@@ -215,7 +214,6 @@ pub mod pallet {
 			ensure!(lock_details.recipient == who.clone(), Error::<T>::InvalidReceiver);
 			Ok(())
 		}
-
 		fn ensure_hashlock_matches(tx_id: [u8; 32], preimage: Vec<u8>) -> Result<(), Error<Self>> {
 			let lock_details =
 				LockTransactions::<T>::get(tx_id).ok_or(Error::TransactionNotExists)?;
@@ -289,7 +287,7 @@ pub mod pallet {
 		fn ensure_expired(expiration_block: &Self::BlockNumber) -> Result<(), Error<Self>> {
 			ensure!(
 				expiration_block <= &<frame_system::Pallet<Self>>::block_number(),
-				Error::Expired
+				Error::TimeLockNotExpired
 			);
 			Ok(())
 		}
@@ -302,7 +300,7 @@ pub mod pallet {
 	impl<T: Config> Pallet<T> {
 		/// Locks funds for a given time ( current block + timelock )
 		#[pallet::call_index(1)]
-		#[pallet::weight(0)]
+		#[pallet::weight(10_000)]
 		pub fn lock(
 			origin: OriginFor<T>,
 			tx_id: [u8; 32],
@@ -350,7 +348,7 @@ pub mod pallet {
 
 		/// Unlocks funds if preimage is correct and timelock  has not expired
 		#[pallet::call_index(2)]
-		#[pallet::weight(0)]
+		#[pallet::weight(10_000)]
 		pub fn unlock(origin: OriginFor<T>, tx_id: [u8; 32], preimage: Vec<u8>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 			T::ensure_lock_details_valid_to_unlock(&who, tx_id)?;
@@ -376,10 +374,10 @@ pub mod pallet {
 		/// Called by the sender if there was no withdraw and the time lock has expired.
 		/// This will restore ownership of the tokens to the sender.
 		#[pallet::call_index(3)]
-		#[pallet::weight(0)]
+		#[pallet::weight(10_000)]
 		pub fn cancel(origin: OriginFor<T>, tx_id: [u8; 32]) -> DispatchResult {
 			let _who = ensure_signed(origin)?;
-			ensure!(T::lock_details_exists(tx_id) == true, Error::<T>::TransactionIdExists);
+			ensure!(T::lock_details_exists(tx_id) == true, Error::<T>::TransactionNotExists);
 			T::ensure_refundable(tx_id)?;
 			let mut lock_details =
 				LockTransactions::<T>::get(tx_id).ok_or(Error::<T>::TransactionNotExists)?;

@@ -191,3 +191,45 @@ fn unlock_ok() {
 		assert_eq!(known_secret, secret.to_vec());
 	});
 }
+
+#[test]
+fn cancel_ok() {
+	new_test_ext().execute_with(|| {
+		let secret = b"Something between us 2023";
+		let hash = hashing::sha2_256(secret);
+		let asset_amount = 1_000;
+		//5 blocks
+		let timelock = 5;
+		let tx_id_elements = (ACCOUNT_A, ACCOUNT_B, hash, timelock, ASSET_A, asset_amount).encode();
+		let tx_id = hashing::sha2_256(&tx_id_elements.as_slice());
+
+		assert_eq!(get_pallet_balance(ASSET_A), PALLET_START_BALANCE);
+		assert_ok!(Aswap::lock(
+			RuntimeOrigin::signed(ACCOUNT_A),
+			tx_id,
+			ACCOUNT_B,
+			hash,
+			timelock,
+			ASSET_A,
+			asset_amount
+		));
+		assert_eq!(get_pallet_balance(ASSET_A), PALLET_START_BALANCE + asset_amount);
+
+		let lock_details = Aswap::lock_transactions(tx_id).unwrap();
+		assert_eq!(lock_details.amount, asset_amount);
+		assert_eq!(lock_details.sender, ACCOUNT_A);
+		assert_eq!(lock_details.recipient, ACCOUNT_B);
+		assert_eq!(lock_details.asset_id, ASSET_A);
+		assert_eq!(lock_details.hashlock, hash);
+		assert_eq!(lock_details.expiration_block, timelock + 1);
+		assert_eq!(lock_details.is_withdraw, false);
+		assert_eq!(lock_details.is_refunded, false);
+
+		//Account A cancelling
+		System::set_block_number(10);
+		assert_eq!(get_account_balance(ACCOUNT_A, ASSET_A), ACCOUNTS_START_BALANCE - asset_amount);
+		assert_ok!(Aswap::cancel(RuntimeOrigin::signed(ACCOUNT_A), tx_id));
+		assert_eq!(get_account_balance(ACCOUNT_A, ASSET_A), ACCOUNTS_START_BALANCE);
+		assert_eq!(get_pallet_balance(ASSET_A), PALLET_START_BALANCE);
+	});
+}
