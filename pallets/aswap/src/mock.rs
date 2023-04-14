@@ -3,8 +3,7 @@ use crate::mock_data::*;
 use frame_support::{
 	parameter_types,
 	traits::{
-		fungibles, tokens::AssetId, AsEnsureOriginWithArg, ConstU128, ConstU16, ConstU32, ConstU64,
-		GenesisBuild,
+		fungibles, AsEnsureOriginWithArg, ConstU128, ConstU16, ConstU32, ConstU64, GenesisBuild,
 	},
 	PalletId,
 };
@@ -138,6 +137,7 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			(ACCOUNT_B, ACCOUNTS_START_BALANCE),
 			(ACCOUNT_C, ACCOUNTS_START_BALANCE),
 			(ACCOUNT_D_LOW_BALANCES, ACCOUNTS_START_LOW_BALANCE),
+			(Aswap::account_id(), ACCOUNTS_START_BALANCE),
 		],
 	}
 	.assimilate_storage(&mut storage)
@@ -148,10 +148,12 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 			(ASSET_A, ACCOUNT_A, true, 1),
 			(ASSET_B, ACCOUNT_B, true, 1),
 			(ASSET_C, ACCOUNT_C, true, 1),
-			(ASSET_D, ACCOUNT_D_LOW_BALANCES, true, 1),
 		],
 		metadata: vec![],
 		accounts: vec![
+			(ASSET_A, Aswap::account_id(), PALLET_START_BALANCE),
+			(ASSET_B, Aswap::account_id(), PALLET_START_BALANCE),
+			(ASSET_C, Aswap::account_id(), PALLET_START_BALANCE),
 			(ASSET_A, ACCOUNT_A, ACCOUNTS_START_BALANCE),
 			(ASSET_A, ACCOUNT_B, ACCOUNTS_START_BALANCE),
 			(ASSET_A, ACCOUNT_C, ACCOUNTS_START_BALANCE),

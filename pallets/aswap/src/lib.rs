@@ -17,12 +17,10 @@ mod benchmarking;
 #[frame_support::pallet]
 pub mod pallet {
 	use frame_support::{
+		inherent::Vec,
 		pallet_prelude::{DispatchResult, *},
 		sp_io::hashing,
-		sp_runtime::traits::{
-			AccountIdConversion, CheckedAdd, CheckedDiv, CheckedMul,
-			One, Zero,
-		},
+		sp_runtime::traits::{AccountIdConversion, Zero},
 		traits::{
 			fungibles::{self, *},
 			tokens::WithdrawConsequence,
@@ -47,6 +45,7 @@ pub mod pallet {
 
 	#[pallet::pallet]
 	#[pallet::generate_store(pub(super) trait Store)]
+	#[pallet::without_storage_info]
 	pub struct Pallet<T>(_);
 
 	/// Configure the pallet by specifying the parameters and types on which it depends.
@@ -87,7 +86,6 @@ pub mod pallet {
 		pub expiration_block: BlockNumber,
 		pub is_withdraw: bool,
 		pub is_refunded: bool,
-		pub preimage: Option<[u8; 32]>,
 	}
 
 	/// type for modeling LockDetails
@@ -99,6 +97,12 @@ pub mod pallet {
 	/// Data storage for keeping all lock transactions
 	pub(super) type LockTransactions<T: Config> =
 		StorageMap<_, Blake2_128Concat, [u8; 32], LockDetailsOf<T>, OptionQuery>;
+
+	#[pallet::storage]
+	#[pallet::getter(fn known_secrets)]
+	/// Data storage for keeping all lock transactions
+	pub(super) type KnownSecrets<T: Config> =
+		StorageMap<_, Blake2_128Concat, [u8; 32], Vec<u8>, OptionQuery>;
 
 	// Pallets use events to inform users when important changes are made.
 	// https://docs.substrate.io/main-docs/build/events-errors/
@@ -163,18 +167,18 @@ pub mod pallet {
 	/// related in relation to exchanges.
 	pub trait PalletHelpers: Config {
 		///	checks if a tx_id exists in the storage
-		fn lockDetailsExists(tx_id: [u8; 32]) -> bool;
+		fn lock_details_exists(tx_id: [u8; 32]) -> bool;
 		///	ensure that tx_id exists in the storage and who equals to recipient or throws error
-		fn ensureLockDetailsValidToUnlock(
+		fn ensure_lock_details_valid_to_unlock(
 			who: &AccountIdOf<Self>,
 			tx_id: [u8; 32],
 		) -> Result<(), Error<Self>>;
 		///	ensure that tx_id's hash and preimage's hash matches or throws error
-		fn ensureHashlockMatches(tx_id: [u8; 32], preimage: [u8; 32]) -> Result<(), Error<Self>>;
+		fn ensure_hashlock_matches(tx_id: [u8; 32], preimage: Vec<u8>) -> Result<(), Error<Self>>;
 		///	ensure that tx_id's expiration block is in the past and it's refundable or Error
-		fn ensureRefundable(tx_id: [u8; 32]) -> Result<(), Error<Self>>;
+		fn ensure_refundable(tx_id: [u8; 32]) -> Result<(), Error<Self>>;
 		///	ensure that tx_id's expiration block is valid and withdrawable or Error
-		fn ensureWithdrawable(tx_id: [u8; 32]) -> Result<(), Error<Self>>;
+		fn ensure_withdrawable(tx_id: [u8; 32]) -> Result<(), Error<Self>>;
 		/// ensures that provided amount is above zero or throws an Error
 		fn ensure_is_not_zero(amount: AssetBalanceOf<Self>) -> Result<(), Error<Self>>;
 		/// checks if account has the amount expected to withdraw for the specific asset
@@ -185,53 +189,55 @@ pub mod pallet {
 		) -> Result<(), Error<Self>>;
 		/// asset exists or dispatchs an Error
 		fn ensure_asset_exists(asset_id: AssetIdOf<Self>) -> Result<(), Error<Self>>;
-		/// checks current block number with the deadline provided. Error if current block number is above
+		/// checks current block number with the deadline provided. Error if current block number is
+		/// above
+		fn ensure_valid_deadline(expiration_block: &Self::BlockNumber) -> Result<(), Error<Self>>;
+		/// checks current block number with the deadline provided. Error if current block number is
+		/// above
 		fn ensure_deadline(expiration_block: &Self::BlockNumber) -> Result<(), Error<Self>>;
-		/// checks current block number with the deadline provided. Error if block number has not expired
+		/// checks current block number with the deadline provided. Error if block number has not
+		/// expired
 		fn ensure_expired(expiration_block: &Self::BlockNumber) -> Result<(), Error<Self>>;
 	}
 
 	/// Helpers implementation
 	impl<T: Config> PalletHelpers for T {
-		
-		fn lockDetailsExists(tx_id: [u8; 32]) -> bool {
+		fn lock_details_exists(tx_id: [u8; 32]) -> bool {
 			LockTransactions::<T>::contains_key(tx_id)
 		}
-		
-		fn ensureLockDetailsValidToUnlock(
+
+		fn ensure_lock_details_valid_to_unlock(
 			who: &AccountIdOf<Self>,
 			tx_id: [u8; 32],
 		) -> Result<(), Error<Self>> {
-			let lockDetails =
+			let lock_details =
 				LockTransactions::<T>::get(tx_id).ok_or(Error::TransactionNotExists)?;
-			ensure!(lockDetails.recipient == who.clone(), Error::<T>::InvalidReceiver);
+			ensure!(lock_details.recipient == who.clone(), Error::<T>::InvalidReceiver);
 			Ok(())
 		}
 
-		fn ensureHashlockMatches(tx_id: [u8; 32], preimage: [u8; 32]) -> Result<(), Error<Self>> {
-			let lockDetails =
+		fn ensure_hashlock_matches(tx_id: [u8; 32], preimage: Vec<u8>) -> Result<(), Error<Self>> {
+			let lock_details =
 				LockTransactions::<T>::get(tx_id).ok_or(Error::TransactionNotExists)?;
-			let secretHash: [u8; 32] = hashing::sha2_256(&preimage.clone());
-			ensure!(lockDetails.hashlock == secretHash, Error::<T>::InvalidPreimage);
+			let secret_hash: [u8; 32] = hashing::sha2_256(&preimage.as_slice().clone());
+			ensure!(lock_details.hashlock == secret_hash, Error::<T>::InvalidPreimage);
 			Ok(())
 		}
-		fn ensureRefundable(tx_id: [u8; 32]) -> Result<(), Error<Self>> {
-			let lockDetails =
+		fn ensure_refundable(tx_id: [u8; 32]) -> Result<(), Error<Self>> {
+			let lock_details =
 				LockTransactions::<T>::get(tx_id).ok_or(Error::TransactionNotExists)?;
-			
-			ensure!(lockDetails.is_refunded == false, Error::<T>::AlreadyRefunded);
-			ensure!(lockDetails.is_withdraw == false, Error::<T>::AlreadyWithdrawn);
-			Self::ensure_expired(&lockDetails.expiration_block);
+			ensure!(lock_details.is_refunded == false, Error::<T>::AlreadyRefunded);
+			ensure!(lock_details.is_withdraw == false, Error::<T>::AlreadyWithdrawn);
+			Self::ensure_expired(&lock_details.expiration_block)?;
 			Ok(())
 		}
-		fn ensureWithdrawable(tx_id: [u8; 32]) -> Result<(), Error<Self>> {
-			let lockDetails =
+		fn ensure_withdrawable(tx_id: [u8; 32]) -> Result<(), Error<Self>> {
+			let lock_details =
 				LockTransactions::<T>::get(tx_id).ok_or(Error::TransactionNotExists)?;
-			
-			ensure!(lockDetails.is_withdraw == false, Error::<T>::AlreadyWithdrawn);
-			ensure!(lockDetails.is_refunded == false, Error::<T>::AlreadyRefunded);
-			// if we want to disallow claim to be made after the timeout, uncomment the following line
-			// Self::ensure_deadline(&lockDetails.expiration_block);
+			ensure!(lock_details.is_withdraw == false, Error::<T>::AlreadyWithdrawn);
+			ensure!(lock_details.is_refunded == false, Error::<T>::AlreadyRefunded);
+			// if we want to disallow claim to be made after the timeout, uncomment the following
+			// line Self::ensure_deadline(&lockDetails.expiration_block);
 			Ok(())
 		}
 
@@ -261,6 +267,15 @@ pub mod pallet {
 		}
 
 		/// checks current block number with the deadline provided. Error if block number is above
+		fn ensure_valid_deadline(expiration_block: &Self::BlockNumber) -> Result<(), Error<Self>> {
+			ensure!(
+				expiration_block > &<frame_system::Pallet<Self>>::block_number(),
+				Error::InvalidTimelock
+			);
+			Ok(())
+		}
+
+		/// checks current block number with the deadline provided. Error if block number is above
 		fn ensure_deadline(expiration_block: &Self::BlockNumber) -> Result<(), Error<Self>> {
 			ensure!(
 				expiration_block > &<frame_system::Pallet<Self>>::block_number(),
@@ -269,7 +284,8 @@ pub mod pallet {
 			Ok(())
 		}
 
-		/// checks current block number with the deadline provided. Error if block number has not expired
+		/// checks current block number with the deadline provided. Error if block number has not
+		/// expired
 		fn ensure_expired(expiration_block: &Self::BlockNumber) -> Result<(), Error<Self>> {
 			ensure!(
 				expiration_block <= &<frame_system::Pallet<Self>>::block_number(),
@@ -283,7 +299,7 @@ pub mod pallet {
 	// These functions materialize as "extrinsics", which are often compared to transactions.
 	// Dispatchable functions must be annotated with a weight and must return a DispatchResult.
 	#[pallet::call]
-	impl<T: Config> Pallet<T> {	
+	impl<T: Config> Pallet<T> {
 		/// Locks funds for a given time ( current block + timelock )
 		#[pallet::call_index(1)]
 		#[pallet::weight(0)]
@@ -297,17 +313,17 @@ pub mod pallet {
 			asset_amount: AssetBalanceOf<T>,
 		) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			ensure!(T::lockDetailsExists(tx_id) == false, Error::<T>::TransactionIdExists);
+			ensure!(T::lock_details_exists(tx_id) == false, Error::<T>::TransactionIdExists);
 			let now = <frame_system::Pallet<T>>::block_number();
 			let expiration_block = now + timelock;
-			T::ensure_deadline(&expiration_block)?;
+			T::ensure_valid_deadline(&expiration_block)?;
 			T::ensure_asset_exists(asset_id)?;
 			T::ensure_has_balance(&who, asset_id, asset_amount)?;
 			// tokens transfered to pallet account.
 			T::Fungibles::transfer(asset_id, &who, &Self::account_id(), asset_amount, true)?;
 			<LockTransactions<T>>::insert(
 				tx_id,
-				LockDetails { 
+				LockDetails {
 					tx_id,
 					sender: who,
 					recipient: recipient.clone(),
@@ -317,8 +333,7 @@ pub mod pallet {
 					expiration_block,
 					is_withdraw: false,
 					is_refunded: false,
-					preimage: None
-			    }
+				},
 			);
 
 			Self::deposit_event(Event::Locked {
@@ -327,7 +342,7 @@ pub mod pallet {
 				hashlock,
 				expiration_block,
 				asset_id,
-				asset_amount 
+				asset_amount,
 			});
 
 			Ok(())
@@ -336,22 +351,25 @@ pub mod pallet {
 		/// Unlocks funds if preimage is correct and timelock  has not expired
 		#[pallet::call_index(2)]
 		#[pallet::weight(0)]
-		pub fn unlock(origin: OriginFor<T>, tx_id: [u8; 32], preimage: [u8; 32]) -> DispatchResult {
+		pub fn unlock(origin: OriginFor<T>, tx_id: [u8; 32], preimage: Vec<u8>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			T::ensureLockDetailsValidToUnlock(&who, tx_id);
-			T::ensureHashlockMatches(tx_id, preimage);
-			T::ensureWithdrawable(tx_id);
-			let mut lockDetails = LockTransactions::<T>::get(tx_id).ok_or(Error::<T>::TransactionNotExists)?;
-			lockDetails.preimage = Some(preimage);
-			lockDetails.is_withdraw = true;
-			T::Fungibles::transfer(lockDetails.asset_id, &Self::account_id(), &lockDetails.recipient, lockDetails.amount, true)?;
-			<LockTransactions<T>>::insert(
-				tx_id,
-				lockDetails.clone()
-			);
-			Self::deposit_event(Event::Unlocked {
-				tx_id
-			});
+			T::ensure_lock_details_valid_to_unlock(&who, tx_id)?;
+			T::ensure_hashlock_matches(tx_id, preimage.clone())?;
+			T::ensure_withdrawable(tx_id)?;
+			let mut lock_details =
+				LockTransactions::<T>::get(tx_id).ok_or(Error::<T>::TransactionNotExists)?;
+			T::ensure_has_balance(&Self::account_id(), lock_details.asset_id, lock_details.amount)?;
+			lock_details.is_withdraw = true;
+			T::Fungibles::transfer(
+				lock_details.asset_id,
+				&Self::account_id(),
+				&lock_details.recipient,
+				lock_details.amount,
+				true,
+			)?;
+			<LockTransactions<T>>::insert(tx_id, lock_details);
+			<KnownSecrets<T>>::insert(tx_id, preimage.clone());
+			Self::deposit_event(Event::Unlocked { tx_id });
 			Ok(())
 		}
 
@@ -360,19 +378,21 @@ pub mod pallet {
 		#[pallet::call_index(3)]
 		#[pallet::weight(0)]
 		pub fn cancel(origin: OriginFor<T>, tx_id: [u8; 32]) -> DispatchResult {
-			let who = ensure_signed(origin)?;
-			ensure!(T::lockDetailsExists(tx_id) == true, Error::<T>::TransactionIdExists);
-			T::ensureRefundable(tx_id);
-			let mut lockDetails = LockTransactions::<T>::get(tx_id).ok_or(Error::<T>::TransactionNotExists)?;
-			lockDetails.is_refunded = true;
-			T::Fungibles::transfer(lockDetails.asset_id, &Self::account_id(), &lockDetails.sender, lockDetails.amount, true)?;
-			<LockTransactions<T>>::insert(
-				tx_id,
-				lockDetails.clone()
-			);
-			Self::deposit_event(Event::Canceled {
-				tx_id
-			});
+			let _who = ensure_signed(origin)?;
+			ensure!(T::lock_details_exists(tx_id) == true, Error::<T>::TransactionIdExists);
+			T::ensure_refundable(tx_id)?;
+			let mut lock_details =
+				LockTransactions::<T>::get(tx_id).ok_or(Error::<T>::TransactionNotExists)?;
+			lock_details.is_refunded = true;
+			T::Fungibles::transfer(
+				lock_details.asset_id,
+				&Self::account_id(),
+				&lock_details.sender,
+				lock_details.amount,
+				true,
+			)?;
+			<LockTransactions<T>>::insert(tx_id, lock_details.clone());
+			Self::deposit_event(Event::Canceled { tx_id });
 			Ok(())
 		}
 	}
