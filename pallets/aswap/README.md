@@ -55,7 +55,7 @@ Inspiration from: https://github.com/chatch/hashed-timelock-contract-ethereum/bl
 	/// Data storage for keeping all lock transactions
 	pub(super) type LockTransactions<T: Config> =
 		StorageMap<_, Blake2_128Concat, [u8; 32], LockDetailsOf<T>, OptionQuery>;
-	/// Data storage for keeping all lock transactions
+	/// Data storage for keeping all known secrets
 	pub(super) type KnownSecrets<T: Config> =
 		StorageMap<_, Blake2_128Concat, [u8; 32], Vec<u8>, OptionQuery>;
 ```
